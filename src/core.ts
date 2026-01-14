@@ -1,4 +1,4 @@
-import { getVersion, subscribe } from 'valtio/vanilla'
+import { getVersion } from 'valtio/vanilla'
 
 type ProxyObject = object
 type Unsubscribe = () => void
@@ -10,61 +10,60 @@ interface Collector {
 }
 
 const callbackStack: Collector[] = []
+const watcherCallbacks = new Set<() => void>()
 
 export const reportUsage = (proxy: object, p: string | symbol, value: unknown): void => {
   if (callbackStack.length === 0) return
   callbackStack[callbackStack.length - 1].add(proxy, p, value)
 }
 
+export const reportChange = (): void => {
+  for (const callback of watcherCallbacks) {
+    registerBatchCallback(callback)
+  }
+}
+
 export const isTracking = (): boolean => callbackStack.length > 0
 
 export function watch(fn: () => void): Unsubscribe {
-  const subscriptions = new Map<ProxyObject, Unsubscribe>()
   const touchedKeys = new Map<ProxyObject, PrevValues>()
+  let isDisposed = false
 
-  const isChanged = (p: ProxyObject, prev: PrevValues): boolean =>
-    Array.from(prev).some(([key, prevValue]) => {
-      const value: unknown = (p as Record<string | symbol, unknown>)[key]
+  const isChanged = (): boolean => {
+    for (const [proxy, prev] of touchedKeys) {
+      for (const [key, [prevValue, prevVersion]] of prev) {
+        const currentValue = (proxy as Record<string | symbol, unknown>)[key]
 
-      const prevOfValue = touchedKeys.get(value as ProxyObject)
-      if (prevOfValue) {
-        return isChanged(value as ProxyObject, prevOfValue)
+        // Direct value change
+        if (!Object.is(currentValue, prevValue)) {
+          return true
+        }
+
+        // If the value is another proxy we're tracking, check it recursively
+        // (its properties will be checked in the outer loop)
+        if (touchedKeys.has(currentValue as ProxyObject)) {
+          continue
+        }
+
+        // Version change (for nested proxies that changed internally)
+        // Only check this for values we're NOT tracking deeper into
+        const currentVersion = getVersion(currentValue)
+        if (
+          typeof currentVersion === 'number' &&
+          typeof prevVersion === 'number' &&
+          currentVersion !== prevVersion
+        ) {
+          return true
+        }
       }
-
-      if (!Object.is(value, prevValue[0])) {
-        return true
-      }
-
-      const version = getVersion(value)
-      const prevVersion = prevValue[1]
-      if (typeof version === 'number' && typeof prevVersion === 'number') {
-        return version !== prevVersion
-      }
-
-      return false
-    })
-
-  const callback = () => {
-    if (Array.from(touchedKeys).some(([p, prev]) => isChanged(p, prev))) {
-      runFn()
     }
+    return false
   }
 
-  const subscribeProxies = () => {
-    const proxiesToSubscribe = new Set<ProxyObject>(touchedKeys.keys())
-
-    for (const [p, unsub] of subscriptions) {
-      if (!proxiesToSubscribe.has(p)) {
-        unsub()
-        subscriptions.delete(p)
-      } else {
-        proxiesToSubscribe.delete(p)
-      }
-    }
-
-    for (const p of proxiesToSubscribe) {
-      const unsub = subscribe(p, () => registerBatchCallback(callback), true);
-      subscriptions.set(p, unsub);
+  const callback = () => {
+    if (isDisposed) return
+    if (isChanged()) {
+      runFn()
     }
   }
 
@@ -88,17 +87,16 @@ export function watch(fn: () => void): Unsubscribe {
       fn()
     } finally {
       callbackStack.pop()
-      subscribeProxies()
     }
   }
 
+  watcherCallbacks.add(callback)
   runFn()
 
   return () => {
-    for (const unsub of subscriptions.values()) {
-      unsub()
-    }
-    subscriptions.clear()
+    if (isDisposed) return
+    isDisposed = true
+    watcherCallbacks.delete(callback)
     touchedKeys.clear()
   }
 }
@@ -134,9 +132,9 @@ export function batch<T>(fn: () => T): T {
 }
 
 export function effect(fn: () => void, cleanup?: () => void): () => void {
-  const unwatch = watch(fn);
+  const unwatch = watch(fn)
   return () => {
-    unwatch();
-    cleanup?.();
-  };
+    unwatch()
+    cleanup?.()
+  }
 }

@@ -1,0 +1,66 @@
+{
+  "name": "valtio-reactive-plugin",
+  "version": "0.1.0",
+  "description": "Reactive watch/batch plugin for valtio using valtio-plugin architecture",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench": "vitest bench"
+  },
+  "tsup": {
+    "entry": [
+      "src/index.ts"
+    ],
+    "format": [
+      "cjs",
+      "esm"
+    ],
+    "dts": true,
+    "splitting": false,
+    "sourcemap": true,
+    "clean": true
+  },
+  "peerDependencies": {
+    "valtio": ">=2.1.0",
+    "valtio-plugin": ">=1.0.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "valtio": "^2.1.0",
+    "valtio-plugin": "^1.0.0",
+    "valtio-reactive": "^0.1.2",
+    "vite": "^7.3.1",
+    "vitest": "^1.0.0"
+  },
+  "keywords": [
+    "valtio",
+    "reactive",
+    "watch",
+    "plugin",
+    "state-management"
+  ],
+  "license": "MIT"
+}
